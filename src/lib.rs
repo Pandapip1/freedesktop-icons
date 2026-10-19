@@ -55,7 +55,7 @@ use memmap2::Mmap;
 use theme::BASE_PATHS;
 
 use crate::cache::{CACHE, CacheEntry};
-use crate::theme::{THEMES, Theme, try_build_icon_path};
+use crate::theme::{THEMES, Theme, get_all_themes_with_search_path, try_build_icon_path};
 use std::hash::{Hash, Hasher};
 use std::io::BufRead;
 use std::ops::ControlFlow;
@@ -118,6 +118,9 @@ pub struct LookupBuilder<'a> {
     scale: u16,
     size: u16,
     theme: &'a str,
+    fallback_themes: Vec<&'a str>,
+    extra_search_path: Vec<PathBuf>,
+    extra_theme_path: Vec<PathBuf>,
 }
 
 /// Build an icon lookup for the given icon name.
@@ -205,6 +208,40 @@ impl<'a> LookupBuilder<'a> {
         self
     }
 
+    /// Add the provided paths to the list of directories to search
+    ///
+    /// ## Example
+    /// ```rust
+    /// # fn main() {
+    /// use freedesktop_icons::lookup;
+    /// use std::path;
+    ///
+    /// let icon = lookup("dropboxstatus-idle")
+    ///     .with_extra_search_path(Vec::from([PathBuf::from("/home/alice/.dropbox-dist/dropbox-lnx.x86_64-238.4.6305/images")]))
+    ///     .find();
+    /// # }
+    pub fn with_extra_search_path(mut self, extra_search_path: Vec<PathBuf>) -> Self {
+        self.extra_search_path.extend(extra_search_path);
+        self
+    }
+
+    /// Add the provided paths to the list of theme directories
+    ///
+    /// ## Example
+    /// ```rust
+    /// # fn main() {
+    /// use freedesktop_icons::lookup;
+    /// use std::path;
+    ///
+    /// let icon = lookup("dropboxstatus-idle")
+    ///     .with_extra_theme_path(Vec::from([PathBuf::from("/home/alice/.dropbox-dist/dropbox-lnx.x86_64-238.4.6305/images/hicolor")]))
+    ///     .find();
+    /// # }
+    pub fn with_extra_theme_path(mut self, extra_theme_path: Vec<PathBuf>) -> Self {
+        self.extra_theme_path.extend(extra_theme_path);
+        self
+    }
+
     /// By default [`find`] will prioritize Png over Svg icon.
     /// Use this if you need to prioritize Svg icons. This could be useful
     /// if you need a modifiable icon, to match a user theme for instance.
@@ -245,6 +282,9 @@ impl<'a> LookupBuilder<'a> {
             scale: 1,
             size: 24,
             theme: "hicolor",
+            fallback_themes: vec!["Cosmic", "hicolor", "gnome", "yaru"],
+            extra_search_path: Vec::new(),
+            extra_theme_path: Vec::new(),
         }
     }
 
@@ -285,14 +325,7 @@ impl<'a> LookupBuilder<'a> {
                             self.search_theme_inherits(search_inherits, searched_themes, t)
                         })
                     })
-                    // Search the cosmic icon theme
-                    .or_else(|| self.search_inherited_theme(searched_themes, "Cosmic".as_bytes()))
-                    // Search the hicolor icon theme if it was not previously searched
-                    .or_else(|| self.search_inherited_theme(searched_themes, "hicolor".as_bytes()))
-                    // GNOME applications may rely on the gnome theme
-                    .or_else(|| self.search_inherited_theme(searched_themes, "gnome".as_bytes()))
-                    // Ubuntu applications may require Yaru
-                    .or_else(|| self.search_inherited_theme(searched_themes, "Yaru".as_bytes()))
+                    .or_else(|| self.search_fallback_themes(searched_themes))
                     .or_else(|| {
                         let extensions = if self.force_svg {
                             [".svg", ".png", ".xpm"]
@@ -404,6 +437,22 @@ impl<'a> LookupBuilder<'a> {
             .get(theme)?
             .iter()
             .find_map(|t| self.search_theme(searched_themes, t))
+    }
+
+    /// Search the inherits of a theme by its name if not already searched.
+    fn search_fallback_themes(
+        &self,
+        searched_themes: &mut Vec<u64>
+    ) -> Option<PathBuf> {
+        for theme in self.fallback_themes.clone() {
+            if let Some(theme_path) = THEMES
+                .get(theme.as_bytes())?
+                .iter()
+                .find_map(|t| self.search_theme(searched_themes, t)) {
+                    return Some(theme_path);
+                }
+        }
+        return None;
     }
 }
 

@@ -14,6 +14,7 @@ bstr = "1.12.1"
 btoi = "0.5.0"
 memchr = "2.7.6"
 memmap2 = "0.9"
+memoize = "0.6.0"
 thiserror = "2.0"
 tracing = { version = "0.1.41", default-features = false }
 xdg = "3.0"

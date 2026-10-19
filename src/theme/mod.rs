@@ -8,6 +8,7 @@ use std::ops::ControlFlow;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use memoize::memoize;
 
 mod directories;
 mod parse;
@@ -20,7 +21,7 @@ pub fn read_ini_theme(path: &Path) -> std::io::Result<Mmap> {
     std::fs::File::open(path).and_then(|file| unsafe { Mmap::map(&file) })
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Theme {
     pub path: ThemePath,
     pub index: PathBuf,
@@ -152,13 +153,14 @@ fn try_build_ext(path: &mut PathBuf, name_buf: &mut String, name: &str, ext: &'s
     path.exists()
 }
 
-// Iter through the base paths and get all theme directories
-pub(super) fn get_all_themes() -> BTreeMap<Vec<u8>, Vec<Theme>> {
+// Iter through the base paths and get all theme directories, with an additional list of directories to search
+#[memoize]
+pub(super) fn get_all_themes_with_search_path(search_path: Vec<PathBuf>) -> BTreeMap<Vec<u8>, Vec<Theme>> {
     let mut icon_themes = BTreeMap::<Vec<u8>, Vec<_>>::new();
     let mut found_indices = BTreeMap::new();
     let mut to_revisit = Vec::new();
 
-    for theme_base_dir in BASE_PATHS.iter() {
+    for theme_base_dir in search_path.iter() {
         let dir_iter = match theme_base_dir.read_dir() {
             Ok(dir) => dir,
             Err(why) => {
@@ -196,6 +198,11 @@ pub(super) fn get_all_themes() -> BTreeMap<Vec<u8>, Vec<Theme>> {
     }
 
     icon_themes
+}
+
+// Iter through the base paths and get all theme directories
+pub(super) fn get_all_themes() -> BTreeMap<Vec<u8>, Vec<Theme>> {
+    get_all_themes_with_search_path(BASE_PATHS.to_vec())
 }
 
 impl Theme {
